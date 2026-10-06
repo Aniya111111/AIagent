@@ -38,4 +38,7 @@ class POISearchRequest(BaseModel):
 class RouteRequest(BaseModel):
     """路线规划请求"""
     origin_address: str = Field(...,description="起点地址", example="北京市朝阳区阜通东大街6号")
-    destination_address: str = Field(...,)
+    destination_address: str = Field(...,description="终点地址", example="北京市海淀区上地十街10号")
+    origin_city: Optional[str] = Field(default=None,description="起点城市")
+    destination_city: Optional[str] = Field(default=None,description="终点城市")
+    route_type: str = Field(default="walking",description="路线类型",example="walking/driving/transit")
