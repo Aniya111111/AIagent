@@ -42,3 +42,21 @@ class RouteRequest(BaseModel):
     origin_city: Optional[str] = Field(default=None,description="起点城市")
     destination_city: Optional[str] = Field(default=None,description="终点城市")
     route_type: str = Field(default="walking",description="路线类型",example="walking/driving/transit")
+
+
+# ============ 响应模型 ============
+class Location(BaseModel):
+    """地理位置"""
+    longitude: float = Field(...,description="经度")
+    latitude: float = Field(..., description="纬度")
+
+class Attraction(BaseModel):
+    """景点信息"""
+    name: str = Field(...,description="景点名称")
+    address: str = Field(..., description="地址")
+    location: Location = Field(...,description="经纬度坐标")
+    visit_duration: int = Field(..., description="建议游览时间(分钟)")
+    description: str = Field(..., description="景点描述")
+    category: Optional[str] = Field(default="景点", description="景点类别")
+    rating: Optional[float] = Field(default=None, description="评分")
+    photos: Optional[list[str]] = Field(default_factory=list,description="景点图片URL")
