@@ -5,7 +5,7 @@ from typing import List,Optional
 from amap_service import get_amap_service
 from unsplash_service import get_unsplash_service
 
-router = APIRouter(perfix='/poi',tags=["POI"])
+router = APIRouter(prefix='/poi',tags=["POI"])
 class POIDetailResponse(BaseModel):
     success: bool
     message: str

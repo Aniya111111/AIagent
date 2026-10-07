@@ -5,7 +5,7 @@ from schemas import POISearchResponse,POISearchRequest,RouteRequest,RouteRespons
 
 from amap_service import get_amap_service
 
-router = APIRouter(perfix="/map",tags=["地图服务"])
+router = APIRouter(prefix="/map",tags=["地图服务"])
 
 @router.get(
     "/poi",
@@ -15,8 +15,8 @@ router = APIRouter(perfix="/map",tags=["地图服务"])
 )
 
 async def search_poi(
-        keywords: str = Query(...,description="搜索关键词",example="故宫"),
-        city: str = Query(..., description="城市", example="北京"),
+        keywords: str = Query(..., description="搜索关键词", examples=["故宫"]),
+        city: str = Query(..., description="城市", examples=["北京"]),
         citylimit: bool = Query(True, description="是否限制在城市范围内")
 ):
     """
@@ -52,7 +52,7 @@ async def search_poi(
     description="查询指定城市的天气信息"
 )
 async def get_weather(
-        city:str = Query(...,description="城市名称",example="北京")
+        city: str = Query(..., description="城市名称", examples=["北京"])
 ):
     """
     查询天气
@@ -76,7 +76,7 @@ async def get_weather(
         print(f"❌ 天气查询失败: {str(e)}")
         raise HTTPException(
             status_code=500,
-            datail=f"天气查询失败: {str(e)}"
+            detail=f"天气查询失败: {str(e)}"
         )
 @router.post(
     "/route",

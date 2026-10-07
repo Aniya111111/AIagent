@@ -381,7 +381,7 @@ class MutiAgentTripPlanner:
             end_date=request.end_date,
             days=days,
             weather_info=[],
-            overrall_suggestions=f"这是为您规划的{request.city}{request.travel_days}日游行程,建议提前查看各景点的开放时间。"
+            overall_suggestions=f"这是为您规划的{request.city}{request.travel_days}日游行程,建议提前查看各景点的开放时间。"
         )
 _multi_agent_planner = None
 def get_trip_planner_agent() -> MutiAgentTripPlanner:

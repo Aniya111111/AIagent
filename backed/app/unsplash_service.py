@@ -22,7 +22,7 @@ class UnsplashService:
             图片列表
         """
         try:
-            url = f"{self.base_yrl}/search/ptotos"
+            url = f"{self.base_yrl}/search/photos"
             params = {
                 "query":query,
                 "per_page":per_page,

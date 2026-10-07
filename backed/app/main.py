@@ -21,9 +21,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # 注册路由
-app.include_router(trip.router,perfix="/api")
-app.include_router(poi.router,perfix="/api")
-app.include_router(map_routes.router,perfix="/api")
+app.include_router(trip.router,prefix="/api")
+app.include_router(poi.router,prefix="/api")
+app.include_router(map_routes.router,prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
@@ -76,7 +76,7 @@ async def health():
 if __name__=="__main__":
     import uvicorn
     uvicorn.run(
-        "app.api.main:app",
+        "app.main:app",
         host=settings.host,
         port=settings.port,
         reload=True

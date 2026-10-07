@@ -2,7 +2,7 @@
 from fastapi import APIRouter,HTTPException
 from schemas import TripRequest,ErrorResponse,TripPlanResponse
 from trip_planner_agent import get_trip_planner_agent
-router = APIRouter(perfix="/trip",tags=["旅游规划"])
+router = APIRouter(prefix="/trip",tags=["旅游规划"])
 
 @router.post(
     "/plan",
