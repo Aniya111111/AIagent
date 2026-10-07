@@ -1,15 +1,11 @@
 import uvicorn
-from app.config import get_setting
-import os
-import sys
-app_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app")
-sys.path.insert(0, app_dir)
+from config import get_setting
 
 if __name__=="__main__":
     setting = get_setting()
 
     uvicorn.run(
-        "app.main:app",
+        "main:app",
         host=setting.host,
         port=setting.port,
         reload=True,
