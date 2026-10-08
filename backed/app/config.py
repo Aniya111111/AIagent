@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import List
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
 
     amap_api_key: str = ""
+    amap_mcp_timeout: float = Field(default=30.0, gt=0, description="单次 MCP 调用超时秒数")
     # Unsplash API
     unsplash_access_key: str = ""
     unsplash_secret_key: str = ""

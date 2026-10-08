@@ -1,7 +1,9 @@
 """旅行规划API路由"""
 from fastapi import APIRouter,HTTPException
-from schemas import TripRequest,ErrorResponse,TripPlanResponse
-from trip_planner_agent import get_trip_planner_agent
+from schemas import TripRequest, TripPlanResponse
+from trip_planner_agent import (
+    TripPlanningError, TripPlannerUnavailableError, get_trip_planner_agent,
+)
 router = APIRouter(prefix="/trip",tags=["旅游规划"])
 
 @router.post(
@@ -39,14 +41,15 @@ async def plan_trip(request:TripRequest):
             message="旅行计划生成成功",
             data=trip_plan
         )
+    except TripPlannerUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except TripPlanningError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
     except Exception as e:
-        print(f"❌ 生成旅行计划失败: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"生成旅行计划失败: {str(e)}"
-        )
+            detail="旅行规划发生内部错误"
+        ) from e
 @router.get(
     "/health",
     summary="健康检查",
@@ -57,14 +60,9 @@ async def health_check():
     try:
         agent = get_trip_planner_agent()
 
-        return {
-            "status": "healthy",
-            "service": "trip-planner",
-            "agent_name":agent.agent.name,
-            "tools_count": len(agent.agent.list_tools())
-        }
+        return agent.get_health()
     except Exception as e:
         raise HTTPException(
             status_code=503,
-            detail=f"服务不可用: {str(e)}"
-        )
+            detail=str(e) if isinstance(e, TripPlannerUnavailableError) else "旅行规划服务不可用"
+        ) from e

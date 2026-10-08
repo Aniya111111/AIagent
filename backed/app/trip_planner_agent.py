@@ -1,10 +1,16 @@
 import json
-from typing import Dict,Any,List
 from hello_agents import SimpleAgent
-from hello_agents.tools import MCPTool
 from llm_service import get_llm
-from schemas import TripRequest,TripPlan,DayPlan,Attraction,Meal,WeatherInfo,Location,Hotel
-from config import get_setting
+from schemas import TripRequest, TripPlan
+from amap_service import AmapServiceError, check_amap_tools, get_amap_mcp_tool
+
+
+class TripPlanningError(RuntimeError):
+    """规划执行或模型输出无效，不能返回成功计划。"""
+
+
+class TripPlannerUnavailableError(RuntimeError):
+    """规划器或其 MCP/LLM 依赖未就绪。"""
 
 # ============ Agent提示词 ============
 ATTRACTION_AGENT_PROMPT = """你是景点搜索专家。你的任务是根据城市和用户偏好搜索合适的景点。
@@ -153,17 +159,10 @@ class MutiAgentTripPlanner:
         """初始化多智能体系统"""
         print("🔄 开始初始化多智能体旅行规划系统...")
         try:
-            settings = get_setting()
-            self.llm = get_llm()
             print("  - 创建共享MCP工具...")
-            self.amap_tool = MCPTool(
-                name="amap",
-                description="高德地图服务",
-                server_command=["uvx", "amap-mcp-server"],
-                env={"AMAP_MAPS_API_KEY": settings.amap_api_key},
-                auto_expand=True
-            )
+            self.amap_tool = get_amap_mcp_tool()
             self.amap_tool.expandable = True
+            self.llm = get_llm()
             print("  - 创建景点搜索Agent...")
 
             self.attraction_agent = SimpleAgent(
@@ -201,10 +200,47 @@ class MutiAgentTripPlanner:
             print(f"   天气查询Agent: {len(self.weather_agent.list_tools())} 个工具")
             print(f"   酒店推荐Agent: {len(self.hotel_agent.list_tools())} 个工具")
         except Exception as e:
-            print(f"❌ 多智能体系统初始化失败: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            raise
+            message = str(e) if isinstance(e, AmapServiceError) else "旅行规划器初始化失败，请检查LLM配置"
+            raise TripPlannerUnavailableError(message) from e
+
+    def get_health(self) -> dict:
+        """检查实际 Agent 注册状态与 MCP 工具连接，不触发 LLM 生成。"""
+        try:
+            tool_names = check_amap_tools(self.amap_tool, probe=True)
+        except AmapServiceError as exc:
+            raise TripPlannerUnavailableError(str(exc)) from exc
+        agents = {}
+        for role in ("attraction", "weather", "hotel", "planner"):
+            agent = getattr(self, f"{role}_agent", None)
+            if agent is None:
+                raise TripPlannerUnavailableError(f"{role} Agent未初始化")
+            tools_count = len(agent.list_tools())
+            if role != "planner" and not tools_count:
+                raise TripPlannerUnavailableError(f"{role} Agent未注册MCP工具")
+            agents[role] = {"name": agent.name, "tools_count": tools_count}
+        if getattr(self, "llm", None) is None:
+            raise TripPlannerUnavailableError("LLM客户端未初始化")
+        return {
+            "status": "healthy",
+            "service": "trip-planner",
+            "agent_name": "多智能体旅行规划系统",
+            "tools_count": len(tool_names),
+            "agents": agents,
+            "check": "agent_registration_and_mcp_tool_discovery",
+        }
+
+    @staticmethod
+    def _run_agent(agent, query: str, stage: str) -> str:
+        try:
+            response = agent.run(query)
+        except Exception as exc:
+            raise TripPlanningError(f"{stage}失败，请稍后重试") from exc
+        if not isinstance(response, str) or not response.strip():
+            raise TripPlanningError(f"{stage}未返回有效响应")
+        if response.lstrip().startswith(("错误:", "错误：", "Error:", "MCP 操作失败", "异步操作失败")):
+            raise TripPlanningError(f"{stage}返回服务错误")
+        return response
+
     def plan_trip(self,request: TripRequest) -> TripPlan:
         """
         使用多智能体协作生成旅行计划
@@ -227,24 +263,24 @@ class MutiAgentTripPlanner:
 
             print("📍 步骤1: 搜索景点...")
             attraction_query = self._build_attraction_query(request)
-            attraction_response = self.attraction_agent.run(attraction_query)
+            attraction_response = self._run_agent(self.attraction_agent, attraction_query, "景点搜索")
             print(f"景点搜索结果: {attraction_response[:200]}...\n")
 
             # 步骤2: 天气查询Agent查询天气
             print("🌤️  步骤2: 查询天气...")
             weather_query = f"请查询{request.city}的天气信息"
-            weather_response = self.weather_agent.run(weather_query)
+            weather_response = self._run_agent(self.weather_agent, weather_query, "天气查询")
             print(f"天气查询结果: {weather_response[:200]}...\n")
 
             # 步骤3: 酒店推荐Agent搜索酒店
             print("🏨 步骤3: 搜索酒店...")
             hotel_query = f"请搜索{request.city}的{request.accommodation}酒店"
-            hotel_response = self.hotel_agent.run(hotel_query)
+            hotel_response = self._run_agent(self.hotel_agent, hotel_query, "酒店搜索")
             print(f"酒店搜索结果: {hotel_response[:200]}...\n")
 
             print("📋 步骤4: 生成行程计划...")
             planner_query = self._build_planner_query(request,attraction_response,weather_response,hotel_response)
-            planner_response = self.planner_agent.run(planner_query)
+            planner_response = self._run_agent(self.planner_agent, planner_query, "行程规划")
             print(f"行程规划结果: {planner_response[:300]}...\n")
 
             # 解析最终计划
@@ -256,11 +292,10 @@ class MutiAgentTripPlanner:
 
             return trip_plan
 
-        except Exception as e:
-            print(f"❌ 生成旅行计划失败: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return self._create_fallback_plan(request)
+        except TripPlanningError:
+            raise
+        except Exception as exc:
+            raise TripPlanningError("旅行规划执行失败，请稍后重试") from exc
 
     def _build_attraction_query(self,request:TripRequest) -> str:
         keyword = []
@@ -315,74 +350,38 @@ class MutiAgentTripPlanner:
             旅行计划
         """
         try:
+            if not isinstance(response, str) or not response.strip():
+                raise ValueError("规划响应为空")
             if "```json" in response:
                 json_start = response.find("```json") + 7
                 json_end = response.find("```",json_start)
+                if json_end < 0:
+                    raise ValueError("JSON代码块未闭合")
                 json_str = response[json_start:json_end].strip()
             elif "```" in response:
                 json_start = response.find("```") + 3
                 json_end = response.find("```", json_start)
+                if json_end < 0:
+                    raise ValueError("代码块未闭合")
                 json_str = response[json_start:json_end].strip()
             elif "{" in response and "}" in response:
                 json_start = response.find("{")
                 json_end = response.rfind("}") + 1
                 json_str = response[json_start:json_end]
             else:
-                raise ValueError("响应中未能扎到JSON数据")
+                raise ValueError("响应中未找到JSON数据")
 
             data = json.loads(json_str)
 
             trip_plan = TripPlan(**data)
+            if (trip_plan.city != request.city or trip_plan.start_date != request.start_date
+                    or trip_plan.end_date != request.end_date):
+                raise ValueError("计划目的地或日期与请求不一致")
+            if len(trip_plan.days) != request.travel_days:
+                raise ValueError("每日行程数量与请求天数不一致")
             return trip_plan
-        except Exception as e:
-            print(f"⚠️  解析响应失败: {str(e)}")
-            print(f"   将使用备用方案生成计划")
-            return self._create_fallback_plan(request)
-    def _create_fallback_plan(self,request:TripRequest) -> TripPlan:
-
-        """创建备用计划(当Agent失败时)"""
-        from datetime import datetime,timedelta
-
-        # 解析日期
-        start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
-
-        # 创建每日行程
-        days = []
-        for i in range(request.travel_days):
-            current_date = start_date + timedelta(days=i)
-            day_plan = DayPlan(
-                date=current_date.strftime("%Y-%m-%d"),
-                day_index=i,
-                description=f"第{i + 1}天行程",
-                transportation=request.transportation,
-                accommodation=request.accommodation,
-                attractions=[
-                    Attraction(
-                        name=f"{request.city}景点{j + 1}",
-                        address=f"{request.city}市",
-                        location=Location(longitude=116.4 + i * 0.01 + j * 0.005, latitude=39.9 + i * 0.01 + j * 0.005),
-                        visit_duration=120,
-                        description=f"这是{request.city}的著名景点",
-                        category="景点"
-                    )
-                    for j in range(2)
-                ],
-                meals=[
-                    Meal(type="breakfast", name=f"第{i + 1}天早餐", description="当地特色早餐"),
-                    Meal(type="lunch", name=f"第{i + 1}天午餐", description="午餐推荐"),
-                    Meal(type="dinner", name=f"第{i + 1}天晚餐", description="晚餐推荐")
-                ]
-            )
-            days.append(day_plan)
-
-        return TripPlan(
-            city=request.city,
-            start_date=request.start_date,
-            end_date=request.end_date,
-            days=days,
-            weather_info=[],
-            overall_suggestions=f"这是为您规划的{request.city}{request.travel_days}日游行程,建议提前查看各景点的开放时间。"
-        )
+        except (TypeError, ValueError) as exc:
+            raise TripPlanningError("规划结果格式无效或与请求不一致，请重新生成") from exc
 _multi_agent_planner = None
 def get_trip_planner_agent() -> MutiAgentTripPlanner:
     global _multi_agent_planner
